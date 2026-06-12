@@ -11,6 +11,7 @@ import {
   runScheduler,
   getTranslateStats,
   translateNextBatch,
+  seedContent,
   RssSource,
   AdminStats,
 } from "@/lib/api";
@@ -32,6 +33,9 @@ export default function Admin() {
   const [translating, setTranslating] = useState(false);
   const [translateLog, setTranslateLog] = useState<string[]>([]);
   const translateRunning = useRef(false);
+
+  // Seed state
+  const [seeding, setSeeding] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -80,6 +84,19 @@ export default function Admin() {
       load();
     } else {
       setAddError(res.error || "Ошибка при добавлении");
+    }
+  };
+
+  const handleSeed = async () => {
+    setSeeding(true);
+    showToast("Генерируем 30 новостей через ИИ...");
+    const res = await seedContent();
+    setSeeding(false);
+    if (res.ok) {
+      showToast(`Добавлено ${res.added} новых статей из ${res.generated} сгенерированных!`);
+      load();
+    } else {
+      showToast(`Ошибка: ${res.error}`);
     }
   };
 
@@ -181,6 +198,29 @@ export default function Admin() {
             ))}
           </div>
         )}
+
+        {/* Seed content block */}
+        <div className="rounded-xl border border-primary/20 bg-card p-5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="font-rajdhani font-bold text-lg uppercase tracking-widest flex items-center gap-2 mb-1">
+                <Icon name="Sparkles" size={16} className="text-primary" />
+                Заполнить базу контентом
+              </h2>
+              <p className="text-sm text-muted-foreground font-golos max-w-lg">
+                ИИ сгенерирует 30 реалистичных игровых новостей на русском языке и добавит их в базу. Идеально для быстрого старта.
+              </p>
+            </div>
+            <Button
+              onClick={handleSeed}
+              disabled={seeding}
+              className="bg-primary text-primary-foreground font-rajdhani font-semibold tracking-wide h-9 px-5 gap-2 flex-shrink-0"
+            >
+              <Icon name={seeding ? "Loader" : "Wand2"} size={15} className={seeding ? "animate-spin" : ""} />
+              {seeding ? "Генерируем..." : "Сгенерировать 30 новостей"}
+            </Button>
+          </div>
+        </div>
 
         {/* Translation block */}
         <div className="rounded-xl border border-border/60 bg-card p-5">

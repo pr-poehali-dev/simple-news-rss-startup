@@ -4,6 +4,7 @@ const URLS = {
   rssFetch: "https://functions.poehali.dev/47f8b119-e276-4ac1-9638-9ef9b991b54b",
   rssScheduler: "https://functions.poehali.dev/b6e7e7ea-b0c5-47a0-91dc-6b35040dfe0e",
   translateBatch: "https://functions.poehali.dev/d5af4d4d-796f-434e-8ea4-b3acd0e2d0c8",
+  seedContent: "https://functions.poehali.dev/14b577ba-1d4c-4939-86d5-f0bb2074ec55",
 };
 
 export const ADMIN_TOKEN = "gamefeed-admin-2025";
@@ -91,6 +92,11 @@ export async function triggerRssFetch(sourceId?: number): Promise<{ ok: boolean;
 
 export async function fetchNewsById(id: number): Promise<{ ok: boolean; item?: NewsDetail; error?: string }> {
   const res = await fetch(`${URLS.newsApi}?id=${id}`);
+  return res.json();
+}
+
+export async function seedContent(): Promise<{ ok: boolean; generated?: number; added?: number; error?: string }> {
+  const res = await fetch(URLS.seedContent);
   return res.json();
 }
 

@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Dry run preview",
+      "method": "GET",
+      "path": "/?dry=1",
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

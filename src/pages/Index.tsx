@@ -319,7 +319,9 @@ export default function Index() {
                   {tabItems.map((item, i) => (
                     <a
                       key={item.id}
-                      href={`/news/${item.id}`}
+                      href={item.url || `/news/${item.id}`}
+                      target={item.url ? "_blank" : undefined}
+                      rel={item.url ? "noopener noreferrer" : undefined}
                       className={`animate-fade-in stagger-${Math.min(i + 1, 6)} rounded-xl border border-border/60 bg-card overflow-hidden card-hover cursor-pointer group block`}
                     >
                       <div className="relative h-44 overflow-hidden bg-secondary/40">

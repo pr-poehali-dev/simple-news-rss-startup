@@ -8,6 +8,7 @@ import {
   addSource,
   toggleSource,
   triggerRssFetch,
+  runScheduler,
   RssSource,
   AdminStats,
 } from "@/lib/api";
@@ -48,8 +49,13 @@ export default function Admin() {
 
   const handleFetch = async (sourceId?: number) => {
     setFetching(sourceId ?? "all");
-    const res = await triggerRssFetch(sourceId);
-    showToast(`Добавлено новых статей: ${res.total_added}`);
+    if (sourceId) {
+      const res = await triggerRssFetch(sourceId);
+      showToast(`Добавлено новых статей: ${res.total_added}`);
+    } else {
+      const res = await runScheduler(true);
+      showToast(`Готово! Добавлено новых статей: ${res.total_added ?? 0}`);
+    }
     setFetching(null);
     load();
   };

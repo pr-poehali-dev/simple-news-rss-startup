@@ -2,6 +2,7 @@ const URLS = {
   newsApi: "https://functions.poehali.dev/8e62e8fb-9b86-4433-a386-a378b856492a",
   adminApi: "https://functions.poehali.dev/7deec7a2-719b-4330-90bf-f26f19750528",
   rssFetch: "https://functions.poehali.dev/47f8b119-e276-4ac1-9638-9ef9b991b54b",
+  rssScheduler: "https://functions.poehali.dev/b6e7e7ea-b0c5-47a0-91dc-6b35040dfe0e",
 };
 
 export const ADMIN_TOKEN = "gamefeed-admin-2025";
@@ -76,5 +77,18 @@ export async function toggleSource(id: number): Promise<{ ok: boolean; active?: 
 export async function triggerRssFetch(sourceId?: number): Promise<{ ok: boolean; total_added: number }> {
   const q = sourceId ? `?source_id=${sourceId}` : "";
   const res = await fetch(`${URLS.rssFetch}${q}`);
+  return res.json();
+}
+
+export async function runScheduler(force = false): Promise<{
+  ok: boolean;
+  skipped?: boolean;
+  total_added?: number;
+  next_run_in_seconds?: number;
+  last_fetched?: string;
+  ran_at?: string;
+}> {
+  const q = force ? "?force=1" : "";
+  const res = await fetch(`${URLS.rssScheduler}${q}`);
   return res.json();
 }

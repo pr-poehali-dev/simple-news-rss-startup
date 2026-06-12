@@ -3,7 +3,7 @@ import Icon from "@/components/ui/icon";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { fetchNews, NewsItem } from "@/lib/api";
+import { fetchNews, runScheduler, NewsItem } from "@/lib/api";
 
 const STATIC_CATEGORIES = ["Все", "Общее", "PC", "Консоли", "Мобильные", "Киберспорт", "Инди", "RPG", "Шутеры"];
 const TAGS = ["#открытыймир", "#мультиплеер", "#ранний_доступ", "#DLC", "#патч", "#анонс", "#обзор", "#стрим"];
@@ -37,6 +37,15 @@ export default function Index() {
     const t = setTimeout(() => setDebouncedSearch(searchQuery), 400);
     return () => clearTimeout(t);
   }, [searchQuery]);
+
+  // Автообновление RSS при загрузке (тихо, в фоне, раз в 30 мин)
+  useEffect(() => {
+    runScheduler(false).then((res) => {
+      if (!res.skipped && res.total_added && res.total_added > 0) {
+        load();
+      }
+    }).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);

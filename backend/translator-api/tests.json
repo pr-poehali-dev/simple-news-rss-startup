@@ -1,0 +1,21 @@
+{
+  "tests": [
+    {
+      "name": "Get translator settings",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Save translator settings",
+      "method": "POST",
+      "path": "/",
+      "body": {"model": "gpt-4o-mini", "style": "readable", "batch_size": 10, "auto_translate": true, "custom_prompt": ""},
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

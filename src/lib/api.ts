@@ -5,6 +5,7 @@ const URLS = {
   rssScheduler: "https://functions.poehali.dev/b6e7e7ea-b0c5-47a0-91dc-6b35040dfe0e",
   translateBatch: "https://functions.poehali.dev/d5af4d4d-796f-434e-8ea4-b3acd0e2d0c8",
   seedContent: "https://functions.poehali.dev/14b577ba-1d4c-4939-86d5-f0bb2074ec55",
+  translatorApi: "https://functions.poehali.dev/415b9f99-4909-4be2-9947-aaf085b8f90c",
 };
 
 export const ADMIN_TOKEN = "gamefeed-admin-2025";
@@ -113,6 +114,80 @@ export async function translateNextBatch(batchSize = 10): Promise<{
   error?: string;
 }> {
   const res = await fetch(`${URLS.translateBatch}?batch=${batchSize}`);
+  return res.json();
+}
+
+// ── Translator API ──────────────────────────────────────────────────────────
+
+export interface TranslatorSettings {
+  model: string;
+  style: string;
+  batch_size: number;
+  auto_translate: boolean;
+  custom_prompt: string;
+  updated_at: string | null;
+}
+
+export interface TranslatorStyle {
+  id: string;
+  label: string;
+  desc: string;
+}
+
+export async function getTranslatorSettings(): Promise<{
+  ok: boolean;
+  settings: TranslatorSettings;
+  stats: { translated: number; remaining: number; total: number; has_key: boolean };
+  styles: TranslatorStyle[];
+  models: string[];
+}> {
+  const res = await fetch(URLS.translatorApi);
+  return res.json();
+}
+
+export async function saveTranslatorSettings(settings: Partial<TranslatorSettings>): Promise<{ ok: boolean }> {
+  const res = await fetch(URLS.translatorApi, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  return res.json();
+}
+
+export async function testTranslation(id?: number): Promise<{
+  ok: boolean;
+  original?: { title: string; excerpt: string };
+  translated?: { title_ru: string; excerpt_ru: string };
+  model?: string;
+  tokens_used?: number;
+  error?: string;
+}> {
+  const q = id ? `?action=test&id=${id}` : "?action=test";
+  const res = await fetch(`${URLS.translatorApi}${q}`);
+  return res.json();
+}
+
+export async function runTranslatorBatch(batch?: number): Promise<{
+  ok: boolean;
+  translated_now: number;
+  remaining: number;
+  translated_total: number;
+  finished: boolean;
+  tokens_used: number;
+  error?: string;
+}> {
+  const q = batch ? `?action=run&batch=${batch}` : "?action=run";
+  const res = await fetch(`${URLS.translatorApi}${q}`);
+  return res.json();
+}
+
+export async function retranslateArticle(id: number): Promise<{
+  ok: boolean;
+  title_ru?: string;
+  excerpt_ru?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${URLS.translatorApi}?action=retranslate&id=${id}`);
   return res.json();
 }
 

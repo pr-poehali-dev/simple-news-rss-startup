@@ -1,0 +1,20 @@
+{
+  "tests": [
+    {
+      "name": "Get sources list (no auth)",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 401,
+      "bodyMatcher": "none"
+    },
+    {
+      "name": "Get sources list (with auth)",
+      "method": "GET",
+      "path": "/",
+      "headers": {"X-Admin-Token": "gamefeed-admin-2025"},
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "news-api": "https://functions.poehali.dev/8e62e8fb-9b86-4433-a386-a378b856492a",
+  "admin-api": "https://functions.poehali.dev/7deec7a2-719b-4330-90bf-f26f19750528",
+  "rss-fetch": "https://functions.poehali.dev/47f8b119-e276-4ac1-9638-9ef9b991b54b"
+}

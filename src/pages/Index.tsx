@@ -31,6 +31,7 @@ export default function Index() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>(STATIC_CATEGORIES);
+  const [newCount, setNewCount] = useState(0);
 
   // debounce search
   useEffect(() => {
@@ -38,35 +39,61 @@ export default function Index() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Автообновление RSS при загрузке (тихо, в фоне, раз в 30 мин)
-  useEffect(() => {
-    runScheduler(false).then((res) => {
-      if (!res.skipped && res.total_added && res.total_added > 0) {
-        load();
-      }
-    }).catch(() => {});
-  }, []);
-
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const data = await fetchNews({
         category: activeCategory,
         search: debouncedSearch,
         limit: 40,
       });
-      setItems(data.items || []);
+      const incoming = data.items || [];
+      setItems((prev) => {
+        if (silent && prev.length > 0 && incoming.length > 0) {
+          const prevTopId = prev[0]?.id;
+          const newItems = incoming.filter((n) => n.id > (prevTopId ?? 0));
+          if (newItems.length > 0) {
+            setNewCount((c) => c + newItems.length);
+            return prev; // не обновляем пока пользователь сам не нажмёт
+          }
+        }
+        return incoming;
+      });
       setTotal(data.total || 0);
       if (data.categories?.length) {
         setCategories(["Все", ...data.categories]);
       }
     } catch {
-      setItems([]);
+      if (!silent) setItems([]);
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [activeCategory, debouncedSearch]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Автообновление RSS при загрузке (тихо, раз в 30 мин)
+  useEffect(() => {
+    runScheduler(false).then((res) => {
+      if (!res.skipped && res.total_added && res.total_added > 0) {
+        load(true);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Polling: проверяем новые статьи каждые 3 минуты
+  useEffect(() => {
+    const interval = setInterval(() => {
+      runScheduler(false).catch(() => {});
+      load(true);
+    }, 3 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  const applyNewItems = () => {
+    setNewCount(0);
+    load(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const toggleTag = (tag: string) => {
     setActiveTags((prev) =>
@@ -140,6 +167,19 @@ export default function Index() {
           </div>
         </div>
       </header>
+
+      {/* New articles banner */}
+      {newCount > 0 && (
+        <div className="sticky top-[97px] z-40 flex justify-center py-2 pointer-events-none">
+          <button
+            onClick={applyNewItems}
+            className="pointer-events-auto animate-fade-in flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-full shadow-lg font-golos font-medium text-sm neon-glow-green hover:bg-primary/90 transition-all"
+          >
+            <Icon name="ArrowUp" size={14} />
+            {newCount} {newCount === 1 ? "новая статья" : newCount < 5 ? "новые статьи" : "новых статей"} — обновить ленту
+          </button>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 py-6 flex gap-6">
         {/* Main Feed */}

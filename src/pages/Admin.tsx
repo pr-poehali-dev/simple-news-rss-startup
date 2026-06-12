@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import {
   toggleSource,
   triggerRssFetch,
   runScheduler,
+  getTranslateStats,
+  translateNextBatch,
   RssSource,
   AdminStats,
 } from "@/lib/api";
@@ -25,11 +27,18 @@ export default function Admin() {
   const [addLoading, setAddLoading] = useState(false);
   const [toast, setToast] = useState("");
 
+  // Translation state
+  const [translateStats, setTranslateStats] = useState<{ translated: number; remaining: number; finished: boolean } | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [translateLog, setTranslateLog] = useState<string[]>([]);
+  const translateRunning = useRef(false);
+
   const load = async () => {
     setLoading(true);
-    const data = await fetchAdminSources();
+    const [data, ts] = await Promise.all([fetchAdminSources(), getTranslateStats()]);
     setSources(data.sources || []);
     setStats(data.stats || null);
+    setTranslateStats(ts);
     setLoading(false);
   };
 
@@ -37,14 +46,12 @@ export default function Admin() {
 
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(""), 3000);
+    setTimeout(() => setToast(""), 3500);
   };
 
   const handleToggle = async (id: number) => {
     await toggleSource(id);
-    setSources((prev) =>
-      prev.map((s) => s.id === id ? { ...s, active: !s.active } : s)
-    );
+    setSources((prev) => prev.map((s) => s.id === id ? { ...s, active: !s.active } : s));
   };
 
   const handleFetch = async (sourceId?: number) => {
@@ -63,10 +70,7 @@ export default function Admin() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddError("");
-    if (!form.name.trim() || !form.url.trim()) {
-      setAddError("Заполните название и URL");
-      return;
-    }
+    if (!form.name.trim() || !form.url.trim()) { setAddError("Заполните название и URL"); return; }
     setAddLoading(true);
     const res = await addSource(form);
     setAddLoading(false);
@@ -79,16 +83,58 @@ export default function Admin() {
     }
   };
 
+  // Запускаем перевод по цепочке батчей
+  const handleTranslateAll = async () => {
+    if (translating) return;
+    setTranslating(true);
+    translateRunning.current = true;
+    setTranslateLog([]);
+
+    let remaining = translateStats?.remaining ?? 0;
+    let totalDone = 0;
+
+    while (translateRunning.current && remaining > 0) {
+      const res = await translateNextBatch(10);
+      totalDone += res.translated_now;
+      remaining = res.remaining;
+
+      setTranslateStats({ translated: (translateStats?.translated ?? 0) + totalDone, remaining, finished: res.finished });
+      setTranslateLog((prev) => [
+        ...prev,
+        `✓ Переведено ещё ${res.translated_now} статей. Осталось: ${remaining}`,
+      ]);
+
+      if (res.finished || res.error) {
+        if (res.error) setTranslateLog((prev) => [...prev, `⚠ Ошибка: ${res.error}`]);
+        break;
+      }
+      // небольшая пауза между батчами
+      await new Promise((r) => setTimeout(r, 800));
+    }
+
+    translateRunning.current = false;
+    setTranslating(false);
+    showToast(`Перевод завершён! Переведено статей: ${totalDone}`);
+    load();
+  };
+
+  const handleStopTranslate = () => {
+    translateRunning.current = false;
+    setTranslating(false);
+    setTranslateLog((prev) => [...prev, "— Перевод остановлен вручную"]);
+  };
+
+  const total = (translateStats?.translated ?? 0) + (translateStats?.remaining ?? 0);
+  const progress = total > 0 ? Math.round(((translateStats?.translated ?? 0) / total) * 100) : 0;
+
   return (
     <div className="min-h-screen gradient-bg">
-      {/* Toast */}
       {toast && (
         <div className="fixed top-4 right-4 z-50 bg-primary text-primary-foreground px-4 py-2 rounded-lg shadow-lg font-golos text-sm animate-fade-in">
           {toast}
         </div>
       )}
 
-      {/* Header */}
       <header className="border-b border-border/60 backdrop-blur-xl bg-background/80 sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -122,8 +168,8 @@ export default function Admin() {
             {[
               { label: "Всего новостей", value: stats.total_news, icon: "Newspaper" },
               { label: "Активных источников", value: stats.active_sources, icon: "Rss" },
-              { label: "Всего источников", value: sources.length, icon: "Database" },
-              { label: "Отключённых", value: sources.filter(s => !s.active).length, icon: "PauseCircle" },
+              { label: "Переведено", value: translateStats?.translated ?? "—", icon: "Languages" },
+              { label: "Не переведено", value: translateStats?.remaining ?? "—", icon: "Globe" },
             ].map((s) => (
               <div key={s.label} className="rounded-xl border border-border/60 bg-card p-4">
                 <div className="flex items-center gap-2 mb-1">
@@ -135,6 +181,74 @@ export default function Admin() {
             ))}
           </div>
         )}
+
+        {/* Translation block */}
+        <div className="rounded-xl border border-border/60 bg-card p-5">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <h2 className="font-rajdhani font-bold text-lg uppercase tracking-widest flex items-center gap-2">
+              <Icon name="Languages" size={16} className="text-primary" />
+              Перевод на русский язык
+            </h2>
+            <div className="flex gap-2">
+              {translating ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleStopTranslate}
+                  className="border-destructive text-destructive hover:bg-destructive/10 font-rajdhani font-semibold h-8 px-4"
+                >
+                  <Icon name="Square" size={13} className="mr-1" /> Остановить
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={handleTranslateAll}
+                  disabled={translateStats?.finished || translateStats?.remaining === 0}
+                  className="bg-primary text-primary-foreground font-rajdhani font-semibold tracking-wide h-8 px-4 gap-2"
+                >
+                  <Icon name="Sparkles" size={14} />
+                  {translateStats?.finished ? "Всё переведено" : `Перевести все (${translateStats?.remaining ?? "…"})`}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          {total > 0 && (
+            <div className="mb-4">
+              <div className="flex justify-between text-xs text-muted-foreground font-golos mb-1">
+                <span>Прогресс перевода</span>
+                <span>{translateStats?.translated ?? 0} / {total} статей ({progress}%)</span>
+              </div>
+              <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {translateStats?.finished && (
+            <p className="flex items-center gap-2 text-sm text-primary font-golos">
+              <Icon name="CheckCircle" size={14} /> Все статьи переведены на русский язык
+            </p>
+          )}
+
+          {/* Log */}
+          {translateLog.length > 0 && (
+            <div className="mt-3 max-h-36 overflow-y-auto rounded-lg bg-secondary/40 p-3 space-y-1">
+              {translateLog.map((line, i) => (
+                <p key={i} className="text-xs font-golos text-muted-foreground">{line}</p>
+              ))}
+              {translating && (
+                <p className="text-xs font-golos text-primary flex items-center gap-1">
+                  <Icon name="Loader" size={10} className="animate-spin" /> Переводим следующий батч…
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Add source form */}
         <div className="rounded-xl border border-border/60 bg-card p-5">
@@ -224,9 +338,7 @@ export default function Admin() {
                     <button
                       onClick={() => handleToggle(src.id)}
                       className={`relative w-10 h-5 rounded-full border transition-all flex-shrink-0 ${
-                        src.active
-                          ? "bg-primary/30 border-primary"
-                          : "bg-secondary border-border/60"
+                        src.active ? "bg-primary/30 border-primary" : "bg-secondary border-border/60"
                       }`}
                     >
                       <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${

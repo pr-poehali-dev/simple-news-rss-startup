@@ -3,6 +3,7 @@ const URLS = {
   adminApi: "https://functions.poehali.dev/7deec7a2-719b-4330-90bf-f26f19750528",
   rssFetch: "https://functions.poehali.dev/47f8b119-e276-4ac1-9638-9ef9b991b54b",
   rssScheduler: "https://functions.poehali.dev/b6e7e7ea-b0c5-47a0-91dc-6b35040dfe0e",
+  translateBatch: "https://functions.poehali.dev/d5af4d4d-796f-434e-8ea4-b3acd0e2d0c8",
 };
 
 export const ADMIN_TOKEN = "gamefeed-admin-2025";
@@ -90,6 +91,22 @@ export async function triggerRssFetch(sourceId?: number): Promise<{ ok: boolean;
 
 export async function fetchNewsById(id: number): Promise<{ ok: boolean; item?: NewsDetail; error?: string }> {
   const res = await fetch(`${URLS.newsApi}?id=${id}`);
+  return res.json();
+}
+
+export async function getTranslateStats(): Promise<{ ok: boolean; translated: number; remaining: number; finished: boolean }> {
+  const res = await fetch(`${URLS.translateBatch}?stats=1`);
+  return res.json();
+}
+
+export async function translateNextBatch(batchSize = 10): Promise<{
+  ok: boolean;
+  translated_now: number;
+  remaining: number;
+  finished: boolean;
+  error?: string;
+}> {
+  const res = await fetch(`${URLS.translateBatch}?batch=${batchSize}`);
   return res.json();
 }
 

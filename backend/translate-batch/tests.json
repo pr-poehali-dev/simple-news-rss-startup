@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get translation stats",
+      "method": "GET",
+      "path": "/?stats=1",
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

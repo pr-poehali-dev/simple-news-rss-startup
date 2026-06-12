@@ -5,10 +5,12 @@ import Icon from "@/components/ui/icon";
 import {
   getTranslatorSettings,
   saveTranslatorSettings,
+  saveApiKey,
   testTranslation,
   runTranslatorBatch,
   TranslatorSettings,
   TranslatorStyle,
+  KeyInfo,
 } from "@/lib/api";
 
 const MODEL_INFO: Record<string, { desc: string; speed: string; cost: string }> = {
@@ -24,11 +26,18 @@ export default function Translator() {
   });
   const [styles, setStyles] = useState<TranslatorStyle[]>([]);
   const [models, setModels] = useState<string[]>([]);
-  const [stats, setStats] = useState({ translated: 0, remaining: 0, total: 0, has_key: false });
+  const [stats, setStats] = useState({ translated: 0, remaining: 0, total: 0 });
+  const [keyInfo, setKeyInfo] = useState<KeyInfo>({ masked: "", source: "none", has_key: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState("");
+
+  // API Key form
+  const [keyInput, setKeyInput] = useState("");
+  const [keyShown, setKeyShown] = useState(false);
+  const [keySaving, setKeySaving] = useState(false);
+  const [keyStatus, setKeyStatus] = useState<"idle" | "valid" | "invalid">("idle");
 
   // Test
   const [testing, setTesting] = useState(false);
@@ -55,8 +64,38 @@ export default function Translator() {
       setStyles(data.styles);
       setModels(data.models);
       setStats(data.stats);
+      setKeyInfo(data.key_info);
     }
     setLoading(false);
+  };
+
+  const handleSaveKey = async () => {
+    setKeySaving(true);
+    setKeyStatus("idle");
+    const res = await saveApiKey(keyInput.trim());
+    setKeySaving(false);
+    if (res.ok) {
+      setKeyInput("");
+      setKeyStatus(res.key_valid === true ? "valid" : res.key_valid === false ? "invalid" : "idle");
+      setKeyInfo(prev => ({
+        ...prev,
+        masked: res.masked,
+        source: res.masked ? "db" : "none",
+        has_key: !!res.masked,
+      }));
+      showToast(res.key_valid === false ? "Ключ сохранён, но не прошёл проверку OpenAI" : "API ключ сохранён и проверен!");
+      load();
+    }
+  };
+
+  const handleDeleteKey = async () => {
+    setKeySaving(true);
+    await saveApiKey("");
+    setKeySaving(false);
+    setKeyInfo({ masked: "", source: "none", has_key: false });
+    setKeyStatus("idle");
+    showToast("API ключ удалён из базы");
+    load();
   };
 
   useEffect(() => { load(); }, []);
@@ -158,14 +197,15 @@ export default function Translator() {
             <span className="text-muted-foreground text-sm ml-2 font-golos">/ Переводчик</span>
           </div>
           <div className="ml-auto flex items-center gap-3">
-            {!stats.has_key && (
+            {!keyInfo.has_key && (
               <span className="text-xs text-destructive font-golos flex items-center gap-1 border border-destructive/30 px-2 py-1 rounded">
-                <Icon name="AlertTriangle" size={12} /> Нет OPENAI_API_KEY
+                <Icon name="AlertTriangle" size={12} /> Нет API ключа
               </span>
             )}
-            {stats.has_key && (
+            {keyInfo.has_key && (
               <span className="text-xs text-primary font-golos flex items-center gap-1 border border-primary/30 px-2 py-1 rounded">
-                <Icon name="CheckCircle" size={12} /> API ключ подключён
+                <Icon name="CheckCircle" size={12} />
+                {keyInfo.source === "env" ? "Ключ из окружения" : `Ключ: ${keyInfo.masked}`}
               </span>
             )}
           </div>
@@ -203,6 +243,85 @@ export default function Translator() {
             </div>
           </div>
         )}
+
+        {/* API Key block */}
+        <div className={`rounded-xl border bg-card p-5 ${keyInfo.has_key ? "border-border/60" : "border-primary/40"}`}>
+          <h2 className="font-rajdhani font-bold text-lg uppercase tracking-widest flex items-center gap-2 mb-4">
+            <Icon name="KeyRound" size={15} className="text-primary" />
+            API ключ OpenAI
+            {keyInfo.has_key && keyInfo.source === "env" && (
+              <span className="text-xs font-golos normal-case tracking-normal text-muted-foreground border border-border/50 px-2 py-0.5 rounded ml-1">из окружения</span>
+            )}
+          </h2>
+
+          {keyInfo.has_key && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20 mb-4">
+              <Icon name="CheckCircle" size={16} className="text-primary flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-golos text-foreground font-medium">Ключ подключён</p>
+                <p className="text-xs text-muted-foreground font-golos font-mono">
+                  {keyInfo.source === "env" ? "Установлен через переменную окружения (OPENAI_API_KEY)" : keyInfo.masked}
+                </p>
+              </div>
+              {keyInfo.source === "db" && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleDeleteKey}
+                  disabled={keySaving}
+                  className="text-destructive hover:bg-destructive/10 h-8 px-3 text-xs font-golos flex-shrink-0"
+                >
+                  <Icon name="Trash2" size={12} className="mr-1" />
+                  Удалить
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!keyInfo.has_key && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/5 border border-destructive/20 mb-4 text-xs text-muted-foreground font-golos">
+              <Icon name="Info" size={13} className="flex-shrink-0 mt-0.5 text-destructive/70" />
+              <span>Без ключа перевод недоступен. Получить ключ можно на <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary underline">platform.openai.com</a> — раздел API Keys.</span>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Input
+                type={keyShown ? "text" : "password"}
+                placeholder={keyInfo.has_key ? "Введите новый ключ для замены..." : "sk-..."}
+                value={keyInput}
+                onChange={e => { setKeyInput(e.target.value); setKeyStatus("idle"); }}
+                className="bg-secondary/60 border-border/60 font-mono text-sm h-10 pr-10"
+              />
+              <button
+                onClick={() => setKeyShown(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Icon name={keyShown ? "EyeOff" : "Eye"} size={15} />
+              </button>
+            </div>
+            <Button
+              onClick={handleSaveKey}
+              disabled={keySaving || !keyInput.trim()}
+              className="bg-primary text-primary-foreground font-rajdhani font-semibold h-10 px-5 gap-2 flex-shrink-0"
+            >
+              <Icon name={keySaving ? "Loader" : "Save"} size={14} className={keySaving ? "animate-spin" : ""} />
+              {keySaving ? "Проверяем..." : "Сохранить"}
+            </Button>
+          </div>
+
+          {keyStatus === "valid" && (
+            <p className="mt-2 text-xs text-primary font-golos flex items-center gap-1">
+              <Icon name="CheckCircle" size={12} /> Ключ проверен и работает
+            </p>
+          )}
+          {keyStatus === "invalid" && (
+            <p className="mt-2 text-xs text-destructive font-golos flex items-center gap-1">
+              <Icon name="AlertCircle" size={12} /> Ключ сохранён, но OpenAI вернул ошибку — проверьте правильность
+            </p>
+          )}
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Настройки */}
@@ -335,7 +454,7 @@ export default function Translator() {
               </p>
               <Button
                 onClick={handleTest}
-                disabled={testing || !stats.has_key}
+                disabled={testing || !keyInfo.has_key}
                 variant="outline"
                 className="w-full border-primary/40 text-primary hover:bg-primary/10 font-rajdhani font-semibold h-9 gap-2"
               >
@@ -399,7 +518,7 @@ export default function Translator() {
                 ) : (
                   <Button
                     onClick={handleRun}
-                    disabled={!stats.has_key || stats.remaining === 0}
+                    disabled={!keyInfo.has_key || stats.remaining === 0}
                     className="flex-1 bg-primary text-primary-foreground font-rajdhani font-semibold h-9 gap-2"
                   >
                     <Icon name="Play" size={14} />

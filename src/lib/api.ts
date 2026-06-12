@@ -134,14 +134,36 @@ export interface TranslatorStyle {
   desc: string;
 }
 
+export interface KeyInfo {
+  masked: string;
+  source: "db" | "env" | "none";
+  has_key: boolean;
+}
+
 export async function getTranslatorSettings(): Promise<{
   ok: boolean;
   settings: TranslatorSettings;
-  stats: { translated: number; remaining: number; total: number; has_key: boolean };
+  key_info: KeyInfo;
+  stats: { translated: number; remaining: number; total: number };
   styles: TranslatorStyle[];
   models: string[];
 }> {
   const res = await fetch(URLS.translatorApi);
+  return res.json();
+}
+
+export async function saveApiKey(api_key: string): Promise<{
+  ok: boolean;
+  saved: boolean;
+  key_valid: boolean | null;
+  masked: string;
+  error?: string;
+}> {
+  const res = await fetch(URLS.translatorApi, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key }),
+  });
   return res.json();
 }
 

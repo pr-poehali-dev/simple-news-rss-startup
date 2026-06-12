@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import Icon from "@/components/ui/icon";
-import { fetchNewsById, NewsDetail } from "@/lib/api";
+import { fetchNewsById, retranslateArticle, NewsDetail } from "@/lib/api";
 
 function Skeleton() {
   return (
@@ -24,6 +24,8 @@ export default function NewsDetailPage() {
   const [item, setItem] = useState<NewsDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [retranslating, setRetranslating] = useState(false);
+  const [retranslateMsg, setRetranslateMsg] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -40,6 +42,21 @@ export default function NewsDetailPage() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const handleRetranslate = async () => {
+    if (!item) return;
+    setRetranslating(true);
+    setRetranslateMsg("");
+    const res = await retranslateArticle(item.id);
+    setRetranslating(false);
+    if (res.ok && res.title_ru) {
+      setItem(prev => prev ? { ...prev, title: res.title_ru!, excerpt: res.excerpt_ru || prev.excerpt, translated: true } : prev);
+      setRetranslateMsg("Готово! Перевод обновлён.");
+    } else {
+      setRetranslateMsg(res.error || "Ошибка перевода. Проверьте API ключ в настройках.");
+    }
+    setTimeout(() => setRetranslateMsg(""), 4000);
+  };
 
   // Форматируем дату
   const formatDate = (iso: string) => {
@@ -149,16 +166,38 @@ export default function NewsDetailPage() {
               </p>
             </div>
 
-            {/* Кнопка — читать на источнике */}
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-rajdhani font-semibold tracking-wide px-6 py-3 rounded-lg hover:bg-primary/90 transition-all neon-glow-green mb-10"
-            >
-              <Icon name="ExternalLink" size={16} />
-              Читать полную статью на {item.source || "источнике"}
-            </a>
+            {/* Кнопки действий */}
+            <div className="flex flex-wrap gap-3 mb-10">
+              <a
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-rajdhani font-semibold tracking-wide px-6 py-3 rounded-lg hover:bg-primary/90 transition-all neon-glow-green"
+              >
+                <Icon name="ExternalLink" size={16} />
+                Читать на {item.source || "источнике"}
+              </a>
+
+              <button
+                onClick={handleRetranslate}
+                disabled={retranslating}
+                className="inline-flex items-center gap-2 border border-border/60 text-muted-foreground font-rajdhani font-semibold tracking-wide px-5 py-3 rounded-lg hover:border-primary/50 hover:text-primary transition-all text-sm"
+              >
+                <Icon name={retranslating ? "Loader" : "RefreshCw"} size={15} className={retranslating ? "animate-spin" : ""} />
+                {retranslating ? "Переводим..." : "Переперевести"}
+              </button>
+            </div>
+
+            {retranslateMsg && (
+              <div className={`flex items-center gap-2 text-sm font-golos mb-6 px-4 py-2 rounded-lg border ${
+                retranslateMsg.includes("Готово") || retranslateMsg.includes("обновлён")
+                  ? "text-primary border-primary/30 bg-primary/5"
+                  : "text-destructive border-destructive/30 bg-destructive/5"
+              }`}>
+                <Icon name={retranslateMsg.includes("Готово") ? "CheckCircle" : "AlertCircle"} size={14} />
+                {retranslateMsg}
+              </div>
+            )}
 
             {/* Разделитель */}
             <div className="border-t border-border/40 pt-6 mb-6">

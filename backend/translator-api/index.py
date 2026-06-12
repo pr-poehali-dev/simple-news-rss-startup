@@ -2,7 +2,6 @@ import os
 import json
 import psycopg2
 import urllib.request
-from datetime import datetime, timezone
 
 STYLE_PROMPTS = {
     "readable": (
@@ -24,16 +23,26 @@ STYLE_PROMPTS = {
 }
 
 
-def build_prompt(style: str, custom_prompt: str, items: list) -> str:
-    style_instruction = custom_prompt if style == "custom" and custom_prompt else STYLE_PROMPTS.get(style, STYLE_PROMPTS["readable"])
+def mask_key(key: str) -> str:
+    """sk-...xxxx — показываем только последние 4 символа."""
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "sk-****"
+    return f"sk-...{key[-4:]}"
 
+
+def build_prompt(style: str, custom_prompt: str, items: list) -> str:
+    style_instruction = (
+        custom_prompt if style == "custom" and custom_prompt
+        else STYLE_PROMPTS.get(style, STYLE_PROMPTS["readable"])
+    )
     texts = []
     for item in items:
         texts.append(
             f"[{item['id']}] TITLE: {item['title']}\n"
             f"EXCERPT: {(item['excerpt'] or '')[:400]}"
         )
-
     return (
         f"{style_instruction}\n\n"
         "Для каждой новости верни объект с полями: id (число из квадратных скобок), title_ru, excerpt_ru.\n"
@@ -65,7 +74,10 @@ def parse_translations(content: str, items: list) -> list:
     for t in translations:
         tid = t.get("id")
         if tid is not None:
-            result_map[int(tid)] = {"title_ru": t.get("title_ru", ""), "excerpt_ru": t.get("excerpt_ru", "")}
+            result_map[int(tid)] = {
+                "title_ru": t.get("title_ru", ""),
+                "excerpt_ru": t.get("excerpt_ru", ""),
+            }
     results = []
     for item in items:
         if item["id"] in result_map:
@@ -79,15 +91,45 @@ def parse_translations(content: str, items: list) -> list:
     return results
 
 
+def get_api_key(cur, schema: str) -> str:
+    """Берём ключ из БД, если нет — из env."""
+    cur.execute(f"SELECT api_key FROM {schema}.translator_settings ORDER BY id DESC LIMIT 1")
+    row = cur.fetchone()
+    db_key = (row[0] or "").strip() if row else ""
+    return db_key or os.environ.get("OPENAI_API_KEY", "")
+
+
+def load_settings(cur, schema: str) -> dict:
+    cur.execute(
+        f"SELECT model, style, batch_size, auto_translate, custom_prompt, api_key, updated_at "
+        f"FROM {schema}.translator_settings ORDER BY id DESC LIMIT 1"
+    )
+    row = cur.fetchone()
+    if not row:
+        return {"model": "gpt-4o-mini", "style": "readable", "batch_size": 10,
+                "auto_translate": True, "custom_prompt": "", "api_key": "", "updated_at": None}
+    db_key = (row[5] or "").strip()
+    env_key = os.environ.get("OPENAI_API_KEY", "")
+    return {
+        "model": row[0], "style": row[1], "batch_size": row[2],
+        "auto_translate": row[3], "custom_prompt": row[4] or "",
+        "api_key_masked": mask_key(db_key) if db_key else (mask_key(env_key) if env_key else ""),
+        "api_key_source": "db" if db_key else ("env" if env_key else "none"),
+        "has_key": bool(db_key or env_key),
+        "updated_at": row[6].isoformat() if row[6] else None,
+    }
+
+
 def handler(event: dict, context) -> dict:
     """
-    Полноценный API переводчика с настройками.
-    GET  /                     — получить настройки + статистику
-    POST /  body={...}         — сохранить настройки
-    GET  /?action=test&id=X    — тест перевода одной статьи
-    GET  /?action=run&batch=N  — перевести следующий батч
-    GET  /?action=retranslate&id=X — переперевести одну статью
-    GET  /?action=models       — список доступных моделей
+    Полноценный API переводчика с настройками и управлением ключом.
+    GET  /                          — настройки + статистика
+    POST /  {model,style,...}       — сохранить настройки
+    POST /  {api_key: "sk-..."}     — сохранить API ключ
+    POST /  {api_key: ""}           — удалить API ключ из БД
+    GET  /?action=test[&id=X]       — тест перевода
+    GET  /?action=run[&batch=N]     — перевести батч
+    GET  /?action=retranslate&id=X  — переперевести одну статью
     """
     if event.get("httpMethod") == "OPTIONS":
         return {
@@ -100,7 +142,6 @@ def handler(event: dict, context) -> dict:
             "body": "",
         }
 
-    api_key = os.environ.get("OPENAI_API_KEY", "")
     schema = os.environ["MAIN_DB_SCHEMA"]
     method = event.get("httpMethod", "GET")
     params = event.get("queryStringParameters") or {}
@@ -109,28 +150,34 @@ def handler(event: dict, context) -> dict:
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
     cur = conn.cursor()
 
-    # ── GET настройки + статистика ──────────────────────────────────────────
+    # ── GET настройки + статистика ───────────────────────────────────────────
     if method == "GET" and not action:
-        cur.execute(f"SELECT model, style, batch_size, auto_translate, custom_prompt, updated_at FROM {schema}.translator_settings ORDER BY id DESC LIMIT 1")
-        row = cur.fetchone()
+        cfg = load_settings(cur, schema)
         cur.execute(f"SELECT COUNT(*) FROM {schema}.news_items WHERE translated = true")
         done = cur.fetchone()[0]
         cur.execute(f"SELECT COUNT(*) FROM {schema}.news_items WHERE translated = false OR translated IS NULL")
         remaining = cur.fetchone()[0]
         cur.close()
         conn.close()
-        settings = {
-            "model": row[0], "style": row[1], "batch_size": row[2],
-            "auto_translate": row[3], "custom_prompt": row[4] or "",
-            "updated_at": row[5].isoformat() if row[5] else None,
-        } if row else {"model": "gpt-4o-mini", "style": "readable", "batch_size": 10, "auto_translate": True, "custom_prompt": ""}
+
+        # Убираем внутренние поля, строим ответ для фронта
+        settings_out = {
+            "model": cfg["model"], "style": cfg["style"],
+            "batch_size": cfg["batch_size"], "auto_translate": cfg["auto_translate"],
+            "custom_prompt": cfg["custom_prompt"], "updated_at": cfg["updated_at"],
+        }
         return {
             "statusCode": 200,
             "headers": {"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
             "body": json.dumps({
                 "ok": True,
-                "settings": settings,
-                "stats": {"translated": done, "remaining": remaining, "total": done + remaining, "has_key": bool(api_key)},
+                "settings": settings_out,
+                "key_info": {
+                    "masked": cfg["api_key_masked"],
+                    "source": cfg["api_key_source"],
+                    "has_key": cfg["has_key"],
+                },
+                "stats": {"translated": done, "remaining": remaining, "total": done + remaining},
                 "styles": [
                     {"id": "readable", "label": "Живой и читабельный", "desc": "Естественный перевод, как написанный на русском"},
                     {"id": "precise",  "label": "Точный",              "desc": "Близко к оригиналу, минимум адаптации"},
@@ -141,9 +188,45 @@ def handler(event: dict, context) -> dict:
             })
         }
 
-    # ── POST сохранить настройки ────────────────────────────────────────────
+    # ── POST сохранить настройки / ключ ─────────────────────────────────────
     if method == "POST":
         body = json.loads(event.get("body") or "{}")
+
+        # Если пришёл api_key — сохраняем только его
+        if "api_key" in body:
+            new_key = (body["api_key"] or "").strip()
+            cur.execute(
+                f"UPDATE {schema}.translator_settings SET api_key=%s, updated_at=NOW() "
+                f"WHERE id=(SELECT id FROM {schema}.translator_settings ORDER BY id DESC LIMIT 1)",
+                (new_key if new_key else None,)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            # Быстро проверяем ключ через OpenAI если он непустой
+            key_valid = None
+            if new_key:
+                try:
+                    req = urllib.request.Request(
+                        "https://api.openai.com/v1/models",
+                        headers={"Authorization": f"Bearer {new_key}"}
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as r:
+                        key_valid = r.status == 200
+                except Exception:
+                    key_valid = False
+            return {
+                "statusCode": 200,
+                "headers": {"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+                "body": json.dumps({
+                    "ok": True,
+                    "saved": True,
+                    "key_valid": key_valid,
+                    "masked": mask_key(new_key) if new_key else "",
+                })
+            }
+
+        # Иначе — стандартные настройки
         model = body.get("model", "gpt-4o-mini")
         style = body.get("style", "readable")
         batch_size = max(1, min(int(body.get("batch_size", 10)), 20))
@@ -151,9 +234,9 @@ def handler(event: dict, context) -> dict:
         custom_prompt = body.get("custom_prompt", "")[:1000]
 
         cur.execute(
-            f"""UPDATE {schema}.translator_settings
-                SET model=%s, style=%s, batch_size=%s, auto_translate=%s, custom_prompt=%s, updated_at=NOW()
-                WHERE id=(SELECT id FROM {schema}.translator_settings ORDER BY id DESC LIMIT 1)""",
+            f"UPDATE {schema}.translator_settings "
+            f"SET model=%s, style=%s, batch_size=%s, auto_translate=%s, custom_prompt=%s, updated_at=NOW() "
+            f"WHERE id=(SELECT id FROM {schema}.translator_settings ORDER BY id DESC LIMIT 1)",
             (model, style, batch_size, auto_translate, custom_prompt)
         )
         conn.commit()
@@ -165,34 +248,32 @@ def handler(event: dict, context) -> dict:
             "body": json.dumps({"ok": True})
         }
 
-    # ── Для всех action-запросов нужен ключ ─────────────────────────────────
+    # ── Для action-запросов нужен ключ ──────────────────────────────────────
+    api_key = get_api_key(cur, schema)
     if not api_key:
         cur.close()
         conn.close()
         return {
             "statusCode": 400,
             "headers": {"Access-Control-Allow-Origin": "*"},
-            "body": json.dumps({"ok": False, "error": "OPENAI_API_KEY не установлен. Добавьте ключ в настройках проекта."})
+            "body": json.dumps({"ok": False, "error": "API ключ не установлен. Добавьте ключ OpenAI в настройках переводчика."})
         }
 
-    # Загружаем настройки
-    cur.execute(f"SELECT model, style, batch_size, auto_translate, custom_prompt FROM {schema}.translator_settings ORDER BY id DESC LIMIT 1")
-    row = cur.fetchone()
-    cfg = {"model": row[0], "style": row[1], "batch_size": row[2], "custom_prompt": row[4] or ""} if row else {"model": "gpt-4o-mini", "style": "readable", "batch_size": 10, "custom_prompt": ""}
+    cfg = load_settings(cur, schema)
 
-    # ── TEST: тест на одной статье ──────────────────────────────────────────
+    # ── TEST ─────────────────────────────────────────────────────────────────
     if action == "test":
         article_id = params.get("id")
         if article_id:
             cur.execute(f"SELECT id, title, excerpt FROM {schema}.news_items WHERE id = %s", (article_id,))
         else:
-            cur.execute(f"SELECT id, title, excerpt FROM {schema}.news_items ORDER BY id DESC LIMIT 1")
+            cur.execute(f"SELECT id, title, excerpt FROM {schema}.news_items ORDER BY RANDOM() LIMIT 1")
         row = cur.fetchone()
         cur.close()
         conn.close()
         if not row:
-            return {"statusCode": 404, "headers": {"Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": False, "error": "Статья не найдена"})}
-
+            return {"statusCode": 404, "headers": {"Access-Control-Allow-Origin": "*"},
+                    "body": json.dumps({"ok": False, "error": "Статья не найдена"})}
         items = [{"id": row[0], "title": row[1], "excerpt": row[2] or ""}]
         prompt = build_prompt(cfg["style"], cfg["custom_prompt"], items)
         try:
@@ -212,15 +293,15 @@ def handler(event: dict, context) -> dict:
                 })
             }
         except Exception as e:
-            return {"statusCode": 500, "headers": {"Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": False, "error": str(e)[:300]})}
+            return {"statusCode": 500, "headers": {"Access-Control-Allow-Origin": "*"},
+                    "body": json.dumps({"ok": False, "error": str(e)[:300]})}
 
-    # ── RUN: перевести следующий батч ───────────────────────────────────────
+    # ── RUN ──────────────────────────────────────────────────────────────────
     if action == "run":
         batch_size = min(int(params.get("batch", cfg["batch_size"])), 20)
         cur.execute(
-            f"""SELECT id, title, excerpt FROM {schema}.news_items
-                WHERE translated = false OR translated IS NULL
-                ORDER BY id ASC LIMIT %s""",
+            f"SELECT id, title, excerpt FROM {schema}.news_items "
+            f"WHERE translated = false OR translated IS NULL ORDER BY id ASC LIMIT %s",
             (batch_size,)
         )
         rows = cur.fetchall()
@@ -234,7 +315,6 @@ def handler(event: dict, context) -> dict:
 
         items = [{"id": r[0], "title": r[1], "excerpt": r[2] or ""} for r in rows]
         prompt = build_prompt(cfg["style"], cfg["custom_prompt"], items)
-
         translated_count = 0
         tokens_used = 0
         error_msg = None
@@ -260,36 +340,32 @@ def handler(event: dict, context) -> dict:
         done = cur.fetchone()[0]
         cur.close()
         conn.close()
-
         return {
             "statusCode": 200,
             "headers": {"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
             "body": json.dumps({
                 "ok": error_msg is None,
-                "translated_now": translated_count,
-                "remaining": remaining,
-                "translated_total": done,
-                "finished": remaining == 0,
-                "tokens_used": tokens_used,
-                "error": error_msg,
+                "translated_now": translated_count, "remaining": remaining,
+                "translated_total": done, "finished": remaining == 0,
+                "tokens_used": tokens_used, "error": error_msg,
             })
         }
 
-    # ── RETRANSLATE: переперевести конкретную статью ─────────────────────────
+    # ── RETRANSLATE ──────────────────────────────────────────────────────────
     if action == "retranslate":
         article_id = params.get("id")
         if not article_id:
             cur.close()
             conn.close()
-            return {"statusCode": 400, "headers": {"Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": False, "error": "id обязателен"})}
-
+            return {"statusCode": 400, "headers": {"Access-Control-Allow-Origin": "*"},
+                    "body": json.dumps({"ok": False, "error": "id обязателен"})}
         cur.execute(f"SELECT id, title, excerpt FROM {schema}.news_items WHERE id = %s", (article_id,))
         row = cur.fetchone()
         if not row:
             cur.close()
             conn.close()
-            return {"statusCode": 404, "headers": {"Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": False, "error": "Статья не найдена"})}
-
+            return {"statusCode": 404, "headers": {"Access-Control-Allow-Origin": "*"},
+                    "body": json.dumps({"ok": False, "error": "Статья не найдена"})}
         items = [{"id": row[0], "title": row[1], "excerpt": row[2] or ""}]
         prompt = build_prompt(cfg["style"], cfg["custom_prompt"], items)
         try:
@@ -306,14 +382,20 @@ def handler(event: dict, context) -> dict:
             return {
                 "statusCode": 200,
                 "headers": {"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
-                "body": json.dumps({"ok": True, "title_ru": results[0]["title_ru"], "excerpt_ru": results[0]["excerpt_ru"]})
+                "body": json.dumps({
+                    "ok": True,
+                    "title_ru": results[0]["title_ru"],
+                    "excerpt_ru": results[0]["excerpt_ru"],
+                })
             }
         except Exception as e:
             conn.rollback()
             cur.close()
             conn.close()
-            return {"statusCode": 500, "headers": {"Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": False, "error": str(e)[:300]})}
+            return {"statusCode": 500, "headers": {"Access-Control-Allow-Origin": "*"},
+                    "body": json.dumps({"ok": False, "error": str(e)[:300]})}
 
     cur.close()
     conn.close()
-    return {"statusCode": 404, "headers": {"Access-Control-Allow-Origin": "*"}, "body": json.dumps({"ok": False, "error": "Unknown action"})}
+    return {"statusCode": 404, "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps({"ok": False, "error": "Unknown action"})}

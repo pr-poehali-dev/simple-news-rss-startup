@@ -7,6 +7,14 @@
       "expectedStatus": 200,
       "expectedBody": {"ok": true},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get news list with category filter",
+      "method": "GET",
+      "path": "/?category=PC",
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
+      "bodyMatcher": "partial"
     }
   ]
 }

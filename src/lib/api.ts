@@ -10,13 +10,21 @@ export const ADMIN_TOKEN = "gamefeed-admin-2025";
 export interface NewsItem {
   id: number;
   title: string;
+  title_original?: string;
   excerpt: string;
   url: string;
   image: string;
   category: string;
   time: string;
   published_at: string;
+  translated?: boolean;
   source: string;
+}
+
+export interface NewsDetail extends NewsItem {
+  source_url: string;
+  prev: { id: number; title: string } | null;
+  next: { id: number; title: string } | null;
 }
 
 export interface RssSource {
@@ -77,6 +85,11 @@ export async function toggleSource(id: number): Promise<{ ok: boolean; active?: 
 export async function triggerRssFetch(sourceId?: number): Promise<{ ok: boolean; total_added: number }> {
   const q = sourceId ? `?source_id=${sourceId}` : "";
   const res = await fetch(`${URLS.rssFetch}${q}`);
+  return res.json();
+}
+
+export async function fetchNewsById(id: number): Promise<{ ok: boolean; item?: NewsDetail; error?: string }> {
+  const res = await fetch(`${URLS.newsApi}?id=${id}`);
   return res.json();
 }
 

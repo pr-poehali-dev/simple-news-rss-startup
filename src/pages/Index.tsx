@@ -196,9 +196,7 @@ export default function Index() {
               {/* Featured */}
               {featured && (
                 <a
-                  href={featured.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={`/news/${featured.id}`}
                   className="animate-fade-in mb-6 rounded-xl overflow-hidden border border-border/60 card-hover cursor-pointer group relative block"
                 >
                   <div className="relative h-72 overflow-hidden">
@@ -217,6 +215,11 @@ export default function Index() {
                         {featured.source}
                       </span>
                     )}
+                    {featured.translated && (
+                      <span className="absolute bottom-3 right-3 flex items-center gap-1 text-xs bg-primary/80 text-primary-foreground px-2 py-0.5 rounded font-golos backdrop-blur-sm">
+                        <Icon name="Languages" size={10} /> RU
+                      </span>
+                    )}
                   </div>
                   <div className="p-5 bg-card">
                     <h2 className="font-rajdhani font-bold text-2xl leading-tight mb-2 group-hover:text-primary transition-colors">
@@ -227,7 +230,7 @@ export default function Index() {
                     </p>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-golos">
                       <span className="flex items-center gap-1"><Icon name="Clock" size={11} />{featured.time}</span>
-                      <span className="flex items-center gap-1"><Icon name="ExternalLink" size={11} />Читать на сайте</span>
+                      <span className="flex items-center gap-1"><Icon name="BookOpen" size={11} />Читать</span>
                     </div>
                   </div>
                 </a>
@@ -238,9 +241,7 @@ export default function Index() {
                 {rest.map((item, i) => (
                   <a
                     key={item.id}
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={`/news/${item.id}`}
                     className={`animate-fade-in stagger-${Math.min(i + 1, 6)} rounded-xl border border-border/60 bg-card overflow-hidden card-hover cursor-pointer group block`}
                   >
                     {item.image && (
@@ -255,6 +256,11 @@ export default function Index() {
                         <Badge className="absolute top-2 left-2 bg-card/80 text-foreground/80 border-border/40 font-golos text-xs backdrop-blur-sm">
                           {item.category}
                         </Badge>
+                        {item.translated && (
+                          <span className="absolute bottom-2 right-2 flex items-center gap-1 text-xs bg-primary/70 text-primary-foreground px-1.5 py-0.5 rounded font-golos">
+                            <Icon name="Languages" size={9} /> RU
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className={`p-4 ${!item.image ? "border-l-2 border-primary/50" : ""}`}>
@@ -263,6 +269,11 @@ export default function Index() {
                           <Badge className="bg-secondary text-muted-foreground border-border/40 font-golos text-xs">
                             {item.category}
                           </Badge>
+                          {item.translated && (
+                            <span className="flex items-center gap-1 text-xs text-primary/70 font-golos">
+                              <Icon name="Languages" size={10} /> RU
+                            </span>
+                          )}
                         </div>
                       )}
                       <h3 className="font-rajdhani font-semibold text-lg leading-tight mb-1.5 group-hover:text-primary transition-colors line-clamp-2">

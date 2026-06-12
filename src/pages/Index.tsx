@@ -21,7 +21,15 @@ function SkeletonCard({ tall = false }: { tall?: boolean }) {
   );
 }
 
+const TABS = [
+  { id: "news",       label: "Новости",    icon: "Newspaper" },
+  { id: "video",      label: "Видео",      icon: "Play" },
+  { id: "categories", label: "Категории",  icon: "LayoutGrid" },
+] as const;
+type TabId = typeof TABS[number]["id"];
+
 export default function Index() {
+  const [activeTab, setActiveTab] = useState<TabId>("news");
   const [activeCategory, setActiveCategory] = useState("Все");
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -107,8 +115,27 @@ export default function Index() {
     );
   };
 
-  const featured = items.find((n) => n.image);
-  const rest = items.filter((n) => n.id !== featured?.id);
+  // Фильтрация по вкладке
+  const VIDEO_SOURCES = ["ign", "youtube", "video", "gamespot", "kotaku"];
+  const isVideo = (item: NewsItem) =>
+    VIDEO_SOURCES.some(v => item.source?.toLowerCase().includes(v)) ||
+    item.category?.toLowerCase().includes("видео");
+
+  const tabItems = activeTab === "video"
+    ? items.filter(isVideo)
+    : items;
+
+  // Группировка по категориям для вкладки «Категории»
+  const categoryGroups = categories
+    .filter(c => c !== "Все")
+    .map(cat => ({
+      name: cat,
+      items: items.filter(n => n.category === cat).slice(0, 4),
+    }))
+    .filter(g => g.items.length > 0);
+
+  const featured = tabItems.find((n) => n.image);
+  const rest = tabItems.filter((n) => n.id !== featured?.id);
 
   return (
     <div className="min-h-screen gradient-bg scanline">
@@ -134,7 +161,42 @@ export default function Index() {
             />
           </div>
 
+          {/* Tab navigation */}
+          <nav className="hidden sm:flex items-center gap-1 bg-secondary/50 rounded-lg p-1 border border-border/40">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-golos font-medium transition-all ${
+                  activeTab === tab.id
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon name={tab.icon as never} size={13} />
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
           <div className="flex items-center gap-2 ml-auto">
+            {/* Mobile tabs */}
+            <div className="flex sm:hidden items-center gap-1">
+              {TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  title={tab.label}
+                  className={`p-2 rounded-lg transition-all ${
+                    activeTab === tab.id
+                      ? "bg-primary/20 text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon name={tab.icon as never} size={16} />
+                </button>
+              ))}
+            </div>
             <a
               href="/admin"
               className="text-muted-foreground hover:text-primary transition-colors p-2"
@@ -148,7 +210,8 @@ export default function Index() {
           </div>
         </div>
 
-        {/* Categories */}
+        {/* Categories — скрываем на вкладке «Категории», там своя навигация */}
+        {activeTab !== "categories" && (
         <div className="max-w-7xl mx-auto px-4 pb-3">
           <div className="flex items-center gap-2 overflow-x-auto">
             {categories.map((cat) => (
@@ -166,6 +229,7 @@ export default function Index() {
             ))}
           </div>
         </div>
+        )}
       </header>
 
       {/* New articles banner */}
@@ -191,6 +255,116 @@ export default function Index() {
                 {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
               </div>
             </>
+          ) : activeTab === "categories" ? (
+            /* ── Вкладка Категории ── */
+            <div className="space-y-8 animate-fade-in">
+              {categoryGroups.length === 0 ? (
+                <div className="text-center py-20 text-muted-foreground font-golos">
+                  <Icon name="LayoutGrid" size={40} className="mx-auto mb-3 opacity-30" />
+                  <p>Категории пока пусты</p>
+                </div>
+              ) : categoryGroups.map((group) => (
+                <div key={group.name}>
+                  <div className="flex items-center justify-between mb-4">
+                    <button
+                      onClick={() => { setActiveCategory(group.name); setActiveTab("news"); }}
+                      className="flex items-center gap-2 group"
+                    >
+                      <h2 className="font-rajdhani font-bold text-xl uppercase tracking-wider group-hover:text-primary transition-colors">
+                        {group.name}
+                      </h2>
+                      <Icon name="ChevronRight" size={16} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                    </button>
+                    <span className="text-xs text-muted-foreground font-golos">
+                      {items.filter(n => n.category === group.name).length} статей
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {group.items.map((item) => (
+                      <a
+                        key={item.id}
+                        href={`/news/${item.id}`}
+                        className="flex gap-3 p-3 rounded-xl border border-border/60 bg-card hover:border-primary/40 transition-all group card-hover"
+                      >
+                        {item.image && (
+                          <div className="w-20 h-16 rounded-lg overflow-hidden flex-shrink-0">
+                            <img src={item.image} alt={item.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
+                            />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-golos font-medium text-sm text-foreground group-hover:text-primary transition-colors line-clamp-2 leading-snug mb-1">
+                            {item.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground font-golos flex items-center gap-1">
+                            <Icon name="Clock" size={10} />{item.time}
+                          </p>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : activeTab === "video" ? (
+            /* ── Вкладка Видео ── */
+            <div className="animate-fade-in">
+              {tabItems.length === 0 ? (
+                <div className="text-center py-20 text-muted-foreground font-golos">
+                  <Icon name="PlayCircle" size={40} className="mx-auto mb-3 opacity-30" />
+                  <p className="mb-2">Видео пока нет</p>
+                  <p className="text-xs opacity-60">Появятся после синхронизации RSS-источников с видеоконтентом</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {tabItems.map((item, i) => (
+                    <a
+                      key={item.id}
+                      href={`/news/${item.id}`}
+                      className={`animate-fade-in stagger-${Math.min(i + 1, 6)} rounded-xl border border-border/60 bg-card overflow-hidden card-hover cursor-pointer group block`}
+                    >
+                      <div className="relative h-44 overflow-hidden bg-secondary/40">
+                        {item.image ? (
+                          <img src={item.image} alt={item.title}
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            onError={(e) => { (e.target as HTMLImageElement).parentElement!.classList.add("bg-secondary/60"); }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Icon name="PlayCircle" size={48} className="text-muted-foreground/30" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-card/80 to-transparent" />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-12 h-12 rounded-full bg-black/60 border border-white/20 flex items-center justify-center backdrop-blur-sm group-hover:border-primary/60 group-hover:bg-primary/20 transition-all">
+                            <Icon name="Play" size={20} className="text-white ml-1" />
+                          </div>
+                        </div>
+                        <div className="absolute top-2 left-2">
+                          <span className="text-xs bg-black/70 text-white px-2 py-0.5 rounded font-golos backdrop-blur-sm">
+                            {item.source || "Видео"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="p-4">
+                        <h3 className="font-rajdhani font-semibold text-base leading-tight mb-1.5 group-hover:text-primary transition-colors line-clamp-2">
+                          {item.title}
+                        </h3>
+                        <p className="text-muted-foreground text-xs font-golos leading-relaxed mb-2 line-clamp-2">
+                          {item.excerpt}
+                        </p>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground font-golos">
+                          <span className="flex items-center gap-1"><Icon name="Clock" size={10} />{item.time}</span>
+                          <span className="text-primary/60">{item.category}</span>
+                        </div>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : (
             <>
               {/* Featured */}

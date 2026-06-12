@@ -50,8 +50,12 @@ export default function Index() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
+      // Вкладка «Видео» — фильтруем по категории «Видео» на сервере
+      const categoryParam = activeTab === "video" ? "Видео"
+        : activeTab === "categories" ? "Все"
+        : activeCategory;
       const data = await fetchNews({
-        category: activeCategory,
+        category: categoryParam,
         search: debouncedSearch,
         limit: 40,
       });
@@ -75,7 +79,7 @@ export default function Index() {
       if (!silent) setItems([]);
     }
     if (!silent) setLoading(false);
-  }, [activeCategory, debouncedSearch]);
+  }, [activeCategory, activeTab, debouncedSearch]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -115,15 +119,8 @@ export default function Index() {
     );
   };
 
-  // Фильтрация по вкладке
-  const VIDEO_SOURCES = ["ign", "youtube", "video", "gamespot", "kotaku"];
-  const isVideo = (item: NewsItem) =>
-    VIDEO_SOURCES.some(v => item.source?.toLowerCase().includes(v)) ||
-    item.category?.toLowerCase().includes("видео");
-
-  const tabItems = activeTab === "video"
-    ? items.filter(isVideo)
-    : items;
+  // Для вкладки «Видео» сервер уже вернул отфильтрованные данные
+  const tabItems = items;
 
   // Группировка по категориям для вкладки «Категории»
   const categoryGroups = categories
